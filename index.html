@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交互式函数绘图工具</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            height: 100vh;
+            background-color: #f5f5f5;
+        }
+        
+        #control-panel {
+            width: 300px;
+            padding: 20px;
+            background-color: #fff;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+            overflow-y: auto;
+        }
+        
+        #graph-container {
+            flex: 1;
+            position: relative;
+            background-color: #fff;
+        }
+        
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .function-control {
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        
+        .color-indicator {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            vertical-align: middle;
+            border-radius: 3px;
+        }
+        
+        input, select, button {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        #info-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.2);
+            display: none;
+            max-width: 300px;
+        }
+        
+        h2 {
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        
+        .help-text {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="control-panel">
+        <h2>函数绘图工具</h2>
+        
+        <div id="function-controls">
+            <div class="function-control">
+                <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                    <div class="color-indicator" style="background-color: #FF0000;"></div>
+                    <span>函数1</span>
+                </div>
+                <input type="text" id="function1" placeholder="输入函数表达式，如 Math.sin(x)" value="Math.sin(x)">
+                <select id="angle-mode1">
+                    <option value="rad">弧度制</option>
+                    <option value="deg">角度制</option>
+                </select>
+            </div>
+        </div>
+        
+        <button id="add-function">添加函数</button>
+        <button id="reset-view">重置视图</button>
+        
+        <div class="help-text">
+            <h3>使用说明：</h3>
+            <ul>
+                <li>鼠标滚轮：缩放</li>
+                <li>鼠标拖动：平移</li>
+                <li>左键点击：显示函数值</li>
+                <li>右键点击：显示导数值</li>
+                <li>左右键同时按：显示积分值</li>
+            </ul>
+            <p>支持JavaScript数学表达式，如：</p >
+            <ul>
+                <li>Math.sin(x)</li>
+                <li>x*x + 2*x - 1</li>
+                <li>Math.exp(x)</li>
+            </ul>
+        </div>
+    </div>
+    
+    <div id="graph-container">
+        <canvas id="graph"></canvas>
+        <div id="info-panel"></div>
+    </div>
+
+    <script>
+        // 初始化画布
+        const canvas = document.getElementById('graph');
+        const ctx = canvas.getContext('2d');
+        const infoPanel = document.getElementById('info-panel');
+        
+        // 调整画布大小
+        function resizeCanvas() {
+            const container = document.getElementById('graph-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            drawGraph();
+        }
+        
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        
+        // 绘图状态
+        let scale = 50; // 像素/单位
+        let originX = canvas.width / 2;
+        let originY = canvas.height / 2;
+        let isDragging = false;
+        let lastX, lastY;
+        
+        // 函数管理
+        const functionColors = ['#FF0000', '#00AA00', '#0000FF', '#FF00FF', '#FFA500'];
+        let functions = [
+            { expr: 'Math.sin(x)', angleMode: 'rad' }
+        ];
+        
+        // DOM元素
+        const functionControls = document.getElementById('function-controls');
+        const addFunctionBtn = document.getElementById('add-function');
+        const resetViewBtn = document.getElementById('reset-view');
+        
+        // 添加函数
+        addFunctionBtn.addEventListener('click', () => {
+            if (functions.length >= 5) {
+                alert('最多支持5个函数');
+                return;
+            }
+            
+            const index = functions.length;
+            functions.push({ expr: '', angleMode: 'rad' });
+            
+            const control = document.createElement('div');
+            control.className = 'function-control';
+            control.innerHTML = `
+                <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                    <div class="color-indicator" style="background-color: ${functionColors[index]};"></div>
+                    <span>函数${index + 1}</span>
+                </div>
+                <input type="text" id="function${index + 1}" placeholder="输入函数表达式">
+                <select id="angle-mode${index + 1}">
+                    <option value="rad">弧度制</option>
+                    <option value="deg">角度制</option>
+                </select>
+            `;
+            
+            functionControls.appendChild(control);
+            
+            // 为新增的输入添加事件监听
+            document.getElementById(`function${index + 1}`).addEventListener('input', updateFunctions);
+            document.getElementById(`angle-mode${index + 1}`).addEventListener('change', updateFunctions);
+        });
+        
+        // 更新函数
+        function updateFunctions() {
+            for (let i = 0; i < functions.length; i++) {
+                const input = document.getElementById(`function${i + 1}`);
+                const select = document.getElementById(`angle-mode${i + 1}`);
+                if (input && select) {
+                    functions[i].expr = input.value;
+                    functions[i].angleMode = select.value;
+                }
+            }
+            drawGraph();
+        }
+        
+        // 为初始函数添加事件监听
+        document.getElementById('function1').addEventListener('input', updateFunctions);
+        document.getElementById('angle-mode1').addEventListener('change', updateFunctions);
+        
+        // 重置视图
+        resetViewBtn.addEventListener('click', () => {
+            scale = 50;
+            originX = canvas.width / 2;
+            originY = canvas.height / 2;
+            drawGraph();
+        });
+        
+        // 鼠标事件
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            lastX = e.clientX;
+            lastY = e.clientY;
+            
+            if (e.button === 0 || e.button === 2) {
+                showInfo(e);
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const dx = e.clientX - lastX;
+                const dy = e.clientY - lastY;
+                lastX = e.clientX;
+                lastY = e.clientY;
+                
+                originX += dx;
+                originY += dy;
+                drawGraph();
+            }
+            
+            if (e.buttons === 1 || e.buttons === 2 || e.buttons === 3) {
+                showInfo(e);
+            } else {
+                infoPanel.style.display = 'none';
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+            infoPanel.style.display = 'none';
+        });
+        
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            
+            // 获取鼠标位置对应的坐标值
+            const graphX = (e.clientX - originX) / scale;
+            const graphY = (originY - e.clientY) / scale;
+            
+            // 缩放因子
+            const zoomFactor = e.deltaY > 0 ? 0.8 : 1.25;
+            scale *= zoomFactor;
+            
+            // 调整原点，实现以鼠标为中心的缩放
+            originX = e.clientX - graphX * scale;
+            originY = e.clientY + graphY * scale;
+            
+            drawGraph();
+        });
+        
+        // 显示信息面板
+        function showInfo(e) {
+            const x = (e.clientX - originX) / scale;
+            const y = (originY - e.clientY) / scale;
+            
+            let infoText = `<b>x = ${x.toFixed(2)}</b><br>`;
+            
+            if (e.buttons === 3) { // 左右键同时按下 - 显示积分
+                for (let i = 0; i < functions.length; i++) {
+                    if (functions[i].expr) {
+                        try {
+                            const integral = numericalIntegral(functions[i], -10, x);
+                            infoText += `<span style="color:${functionColors[i]}">∫f${i+1}(x)dx ≈ ${integral.toFixed(4)}</span><br>`;
+                        } catch (err) {
+                            infoText += `<span style="color:${functionColors[i]}">f${i+1}(x): 积分计算错误</span><br>`;
+                        }
+                    }
+                }
+            } else if (e.button === 2 || e.buttons === 2) { // 右键 - 显示导数
+                for (let i = 0; i < functions.length; i++) {
+                    if (functions[i].expr) {
+                        try {
+                            const derivative = numericalDerivative(functions[i], x);
+                            infoText += `<span style="color:${functionColors[i]}">f'${i+1}(x) ≈ ${derivative.toFixed(4)}</span><br>`;
+                        } catch (err) {
+                            infoText += `<span style="color:${functionColors[i]}">f${i+1}(x): 导数计算错误</span><br>`;
+                        }
+                    }
+                }
+            } else { // 左键 - 显示函数值
+                for (let i = 0; i < functions.length; i++) {
+                    if (functions[i].expr) {
+                        try {
+                            const yValue = evaluateFunction(functions[i], x);
+                            infoText += `<span style="color:${functionColors[i]}">f${i+1}(x) = ${yValue.toFixed(4)}</span><br>`;
+                        } catch (err) {
+                            infoText += `<span style="color:${functionColors[i]}">f${i+1}(x): 计算错误</span><br>`;
+                        }
+                    }
+                }
+            }
+            
+            infoPanel.innerHTML = infoText;
+            infoPanel.style.display = 'block';
+            infoPanel.style.left = (e.clientX + 10) + 'px';
+            infoPanel.style.top = (e.clientY + 10) + 'px';
+        }
+        
+        // 计算函数值
+        function evaluateFunction(func, x) {
+            const angleFactor = func.angleMode === 'deg' ? Math.PI / 180 : 1;
+            const expr = func.expr.replace(/x/g, `(${x}*${angleFactor})`);
+            return eval(expr);
+        }
+        
+        // 数值导数
+        function numericalDerivative(func, x, h = 0.0001) {
+            const f1 = evaluateFunction(func, x + h);
+            const f2 = evaluateFunction(func, x - h);
+            return (f1 - f2) / (2 * h);
+        }
+        
+        // 数值积分 (辛普森法则)
+        function numericalIntegral(func, a, b, n = 1000) {
+            if (a === b) return 0;
+            const h = (b - a) / n;
+            let sum = evaluateFunction(func, a) + evaluateFunction(func, b);
+            
+            for (let i = 1; i < n; i++) {
+                const x = a + i * h;
+                const coeff = i % 2 === 0 ? 2 : 4;
+                sum += coeff * evaluateFunction(func, x);
+            }
+            
+            return sum * h / 3;
+        }
+        
+        // 绘制图形
+        function drawGraph() {
+            // 清空画布
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制坐标系
+            drawCoordinateSystem();
+            
+            // 绘制所有函数
+            for (let i = 0; i < functions.length; i++) {
+                if (functions[i].expr) {
+                    drawFunction(functions[i], functionColors[i]);
+                }
+            }
+        }
+        
+        // 绘制坐标系
+        function drawCoordinateSystem() {
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1;
+            
+            // 绘制X轴
+            ctx.beginPath();
+            ctx.moveTo(0, originY);
+            ctx.lineTo(canvas.width, originY);
+            ctx.stroke();
+            
+            // 绘制Y轴
+            ctx.beginPath();
+            ctx.moveTo(originX, 0);
+            ctx.lineTo(originX, canvas.height);
+            ctx.stroke();
+            
+            // 绘制网格和刻度
+            drawGridAndLabels();{
+          ctx.strokeStyle = '#DDDDDD';
+            ctx.lineWidth = 0.5;
+            ctx.fillStyle = '#000000';
+            ctx.font = '10px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            
+            // 自适应刻度间隔
+            let unitSpacing = scale;
+            let unitsPerLabel = 1;
+            
+            if (unitSpacing < 30) {
+                unitsPerLabel = Math.ceil(2 / unitSpacing * 30);
+                unitSpacing = scale * unitsPerLabel;
+            }
+            
+            // X轴网格和标签
+            const startX = -Math.floor(originX / scale / unitsPerLabel) * unitsPerLabel;
+            const endX = Math.floor((canvas.width - originX) / scale / unitsPerLabel) * unitsPerLabel;
+            
+            for (let x = startX; x <= endX; x += unitsPerLabel) {
+                const screenX = originX + x * scale;
+                
+                // 网格线
+                ctx.beginPath();
+                ctx.moveTo(screenX, 0);
+                ctx.lineTo(screenX, canvas.height);
+                ctx.stroke();
+                
+                // 标签
+                if (x !== 0) {
+                    ctx.fillText(x.toString(), screenX, originY + 5);
+                }
+            }
+            
+            // Y轴网格和标签
+            const startY = -Math.floor(originY / scale / unitsPerLabel) * unitsPerLabel;
+            const endY = Math.floor((canvas.height - originY) / scale / unitsPerLabel) * unitsPerLabel;
+            
+            for (let y = startY; y <= endY; y += unitsPerLabel) {
+                const screenY = originY - y * scale;
+                
+                // 网格线
+                ctx.beginPath();
+                ctx.moveTo(0, screenY);
+                ctx.lineTo(canvas.width, screenY);
+                ctx.stroke();
+                
+                // 标签
+                if (y !== 0) {
+                    ctx.textAlign = 'right';
+                    ctx.fillText(y.toString(), originX - 5, screenY - 10);
+                    ctx.textAlign = 'center';
+                }
+            }
+            
+            // 原点标签
+            ctx.fillText('0', originX + 10, originY + 5);
+        }
+        
+        // 绘制函数
+        function drawFunction(func, color) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            const step = 1; // 像素步长
+            let firstPoint = true;
+            
+            for (let screenX = 0; screenX < canvas.width; screenX += step) {
+                const x = (screenX - originX) / scale;
+                
+                try {
+                    const y = evaluateFunction(func, x);
+                    const screenY = originY - y * scale;
+                    
+                    if (isFinite(screenY) && screenY >= 0 && screenY <= canvas.height) {
+                        if (firstPoint) {
+                            ctx.moveTo(screenX, screenY);
+                            firstPoint = false;
+                        } else {
+                            ctx.lineTo(screenX, screenY);
+                        }
+                    } else {
+                        firstPoint = true;
+                    }
+                } catch (err) {
+                    firstPoint = true;
+                }
+            }
+            
+            ctx.stroke();
+        }
+        
+        // 初始绘制
+        drawGraph();
+    </script>
+</body>
+</html>
+        
+       
